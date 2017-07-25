@@ -38,7 +38,7 @@ def enum_header(header):
     print(tc.colored("{0:25} {1}".format("\tProgram header size:",    hex(header.program_header_size)),                "green"))
     print(tc.colored("{0:25} {1}".format("\tSection header offset:",  hex(header.section_header_offset)),              "green"))
     print(tc.colored("{0:25} {1}".format("\tSection name table idx:", hex(header.section_name_table_idx)),             "green"))
-    print(tc.colored("{0:25} {1}".format("\tSection header size:",    hex(header.sizeof_section_header)),              "green"))
+    print(tc.colored("{0:25} {1}".format("\tSection header size:",    hex(header.section_header_size)),                "green"))
     
 
 def show_interpreter(binary):
@@ -126,7 +126,7 @@ def enum_segments(binary):
         # Properties
         print(tc.colored("\t{0:15} {1}".format("Alignment",     hex(s.alignment)),           "cyan"))
         print(tc.colored("\t{0:15} {1}".format("File offset",   hex(s.file_offset)),         "cyan"))
-        print(tc.colored("\t{0:15} {1}".format("Flags",         s.flag),                     "cyan"))
+        print(tc.colored("\t{0:15} {1}".format("Flags",         s.flags),                    "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Type",          get_typeval_as_str(s.type)), "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Virtual addr",  hex(s.virtual_address)),     "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Virtual size",  hex(s.virtual_size)),        "cyan"))
