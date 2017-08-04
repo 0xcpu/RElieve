@@ -113,8 +113,8 @@ def enum_sections(binary):
         print(tc.colored("\t{0:15} {1}".format("Link",          s.link),                     "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Name index",    s.name_idx),                 "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Offset",        hex(s.offset)),              "cyan"))
-        print(tc.colored("\t{0:15} {1}".format("Original size", s.original_size),            "cyan"))
-        print(tc.colored("\t{0:15} {1}".format("Size",          s.size),                     "cyan"))
+        print(tc.colored("\t{0:15} {1}".format("Original size", hex(s.original_size)),       "cyan"))
+        print(tc.colored("\t{0:15} {1}".format("Size",          hex(s.size)),                "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Type",          get_typeval_as_str(s.type)), "cyan"))
         print(tc.colored("\t{0:15} {1}".format("Virtual addr",  hex(s.virtual_address)),     "cyan"))
 
