@@ -57,13 +57,8 @@ def get_capstone_mode(arch, mode):
         raise "Unsupported capstone arch"
 
 
-def check_entrypoint(binary):
-    entrypoint = binary.header.entrypoint
-    section = binary.section_from_virtual_address(entrypoint)
-    print(tc.colored("Entrypoint at virtual address: {}".format(hex(entrypoint)), "green"))
-    print("{0} {1} {2}".format(tc.colored("Section:","green"),
-                               tc.colored(section.name, "red"),
-                               tc.colored("contains the entrypoint", "green")))
+def disas(binary, addr):
+    print(tc.colored("<Capstone disassembly>", "green"))
 
     mode = get_elf_class_str(binary.header.identity_class)
     if mode == None:
@@ -73,15 +68,30 @@ def check_entrypoint(binary):
         return
     dis_mode = get_capstone_mode(arch, mode)
 
-    code = bytes(binary.get_content_from_virtual_address(entrypoint, 0x30))
+    try:
+        code = bytes(binary.get_content_from_virtual_address(addr, 0x30))
+    except lief.not_found as err:
+        print(err)
+        return
+
     md = Cs(arch, dis_mode)
-    for i in md.disasm(code, entrypoint):
+    for i in md.disasm(code, addr):
         print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
 
 
+def check_entrypoint(binary):
+    entrypoint = binary.header.entrypoint
+    section = binary.section_from_virtual_address(entrypoint)
+    print(tc.colored("Entrypoint at virtual address: {}".format(hex(entrypoint)), "green"))
+    print("{0} {1} {2}".format(tc.colored("Section:","green"),
+                               tc.colored(section.name, "red"),
+                               tc.colored("contains the entrypoint", "green")))
+
+    disas(binary, entrypoint)
+
     print()
 
-        
+
 def check_rwx_sections(binary):
     print(tc.colored("Segments with PF_W + PF_X or PF_R + PF_W + PF_X flags", "green"))
 
@@ -94,36 +104,86 @@ def check_rwx_sections(binary):
     print()
 
 
+def get_register_size(binary):
+    elf_class = get_elf_class_str(binary.header.identity_class)
+    if elf_class == "64":
+        return 8
+    else:
+        return 4
+
+
 def check_ctors_array(binary):
     print(tc.colored("Check if .ctors/.fini_array function pointers "
                      "were (possibly) patched", "green"))
 
-    elf_class = get_elf_class_str(binary.header.identity_class)
-    if elf_class == "64":
-        reg_size = 8
+    reg_size = get_register_size(binary)
+
+    if   binary.has_section(".ctors"):
+        sect = binary.get_section(".ctors")
+    elif binary.has_section(".init_array"):
+        sect = binary.get_section(".init_array")
     else:
-        reg_size = 4
+        raise lief.not_found
 
-    for sect in binary.sections:
-        if (sect.name == ".ctors") or (sect.name == ".init_array"):
-            content = sect.content
+    content = sect.content
 
-            for i in range(0, sect.size, reg_size):
-                addr = int.from_bytes(content[i : i + reg_size], byteorder="little")
-                print("{0} {1}".format(tc.colored("Check address: ", "cyan"),
-                                       tc.colored(hex(addr), "yellow")))
+    for i in range(0, sect.size, reg_size):
+        addr = int.from_bytes(content[i : i + reg_size], byteorder="little")
+        print("{0} {1}".format(tc.colored("Checking address: ", "cyan"),
+                               tc.colored(hex(addr), "yellow")), end=' ')
 
-                text_sect = binary.get_section(".text")
-                is_lesser  = addr < text_sect.virtual_address
-                is_greater = addr > text_sect.virtual_address + text_sect.size
-                if is_lesser or is_greater:
-                    print("{0} {1}".format(tc.colored(hex(addr), "yellow"),
-                                           tc.colored("is outside of .text section", "red")))
-                
-                
+        text_sect = binary.get_section(".text")
+        is_lesser  = addr < text_sect.virtual_address
+        is_greater = addr > text_sect.virtual_address + text_sect.size
+        if is_lesser or is_greater:
+            print("{0}".format(tc.colored("is outside of .text section", "red")))
+        else:
+            print("{0}".format(tc.colored("OK", "cyan")))
+
     print()
 
-                    
+
+def check_got_and_plt(binary):
+    print(tc.colored("Check if GOT entries were patched", "green"))
+
+    reg_size = get_register_size(binary)
+    # Analyse only executables and shared libraries
+    if binary.has_section(".plt"):
+        plt = binary.get_section(".plt")
+        print("{0} {1} {2}".format(tc.colored(".plt at", "green"),
+                                   tc.colored(hex(plt.virtual_address), "yellow"),
+                                   tc.colored(hex(plt.virtual_address + plt.size), "yellow")))
+    else:
+        raise lief.not_found
+    if binary.has_section(".got.plt"):
+        got_plt = binary.get_section(".got.plt")
+    else:
+        raise lief.not_found
+
+    content = got_plt.content
+
+    # ignore first 3 entries in GOT, because they are reserved
+    for i in range(3 * reg_size, got_plt.size, reg_size):
+        addr = int.from_bytes(content[i : i + reg_size], byteorder="little")
+        print("{0} {1}".format(tc.colored("Checking address: ", "cyan"),
+                               tc.colored(hex(addr), "yellow")), end=' ')
+
+        is_lesser  = addr < plt.virtual_address
+        is_greater = addr > plt.virtual_address + plt.size
+        if is_lesser or is_greater:
+            print("{0}".format(tc.colored("is outside of .plt section", "red")))
+            for r in binary.pltgot_relocations:
+                if (r.address == (got_plt.virtual_address + i)) and r.has_symbol:
+                    print("{0} {1} {2}".format(tc.colored(hex(addr), "yellow"),
+                                               tc.colored("should point to", "green"),
+                                               tc.colored(r.symbol, "yellow")))
+            disas(binary, addr)
+        else:
+            print("{0}".format(tc.colored("OK", "cyan")))
+
+    print()
+
+
 def analyse():
     if len(sys.argv) < 2:
         print("[USAGE]: {0} <executable>".format(sys.argv[0]))
@@ -138,6 +198,7 @@ def analyse():
     check_entrypoint(binary)
     check_rwx_sections(binary)
     check_ctors_array(binary)
+    check_got_and_plt(binary)
 
 
 if __name__ == "__main__":
