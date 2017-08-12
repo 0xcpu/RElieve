@@ -3,6 +3,9 @@
 import lief
 import sys
 import termcolor as tc
+import tempfile
+import subprocess
+import json
 from capstone import *
 
 
@@ -27,7 +30,7 @@ def get_capstone_arch(machine_type, mode):
     elif machine_type == lief.ELF.ARCH.PPC:
         return CS_ARCH_PPC
     elif machine_type == lief.ELF.ARCH.i386:
-        return CS_ARCH_x86
+        return CS_ARCH_X86
     elif machine_type == lief.ELF.ARCH.x86_64:
         return CS_ARCH_X86
     else:
@@ -57,7 +60,7 @@ def get_capstone_mode(arch, mode):
         raise "Unsupported capstone arch"
 
 
-def disas(binary, addr):
+def disas(binary, addr, length):
     print(tc.colored("<Capstone disassembly>", "green"))
 
     mode = get_elf_class_str(binary.header.identity_class)
@@ -69,7 +72,7 @@ def disas(binary, addr):
     dis_mode = get_capstone_mode(arch, mode)
 
     try:
-        code = bytes(binary.get_content_from_virtual_address(addr, 0x30))
+        code = bytes(binary.get_content_from_virtual_address(addr, length))
     except lief.not_found as err:
         print(err)
         return
@@ -87,7 +90,7 @@ def check_entrypoint(binary):
                                tc.colored(section.name, "red"),
                                tc.colored("contains the entrypoint", "green")))
 
-    disas(binary, entrypoint)
+    disas(binary, entrypoint, 0x30)
 
     print()
 
@@ -129,6 +132,8 @@ def check_ctors_array(binary):
 
     for i in range(0, sect.size, reg_size):
         addr = int.from_bytes(content[i : i + reg_size], byteorder="little")
+        if (hex(addr) == ("0x" + "ff" * reg_size)) or (hex(addr) == "0x0"):
+            continue
         print("{0} {1}".format(tc.colored("Checking address: ", "cyan"),
                                tc.colored(hex(addr), "yellow")), end=' ')
 
@@ -177,9 +182,76 @@ def check_got_and_plt(binary):
                     print("{0} {1} {2}".format(tc.colored(hex(addr), "yellow"),
                                                tc.colored("should point to", "green"),
                                                tc.colored(r.symbol, "yellow")))
-            disas(binary, addr)
+                    break
+
+            disas(binary, addr, 0x30)
         else:
             print("{0}".format(tc.colored("OK", "cyan")))
+
+    print()
+
+
+# TO DO: pattern match trampolines instead of outputing all prologues
+def check_funcs_trampoline(binary, path):
+    print(tc.colored("Check if function(s) prologue contain a trampoline", "green"))
+
+    python2_code = \
+                   """
+import angr
+import json
+
+proj  = angr.Project("{0}", auto_load_libs=False)
+cfg   = proj.analyses.CFG()
+funcs = dict()
+
+for k, v in dict(proj.kb.functions).iteritems():
+    funcs[v.name] = v.addr
+
+print json.dumps(funcs)
+                   """.format(path)
+
+    temp_file = tempfile.NamedTemporaryFile(mode='w+', suffix=".py")
+    with open(temp_file.name, "w+") as f:
+        f.write(python2_code)
+    temp_file.file.close()
+
+    python2_proc  = subprocess.Popen(["python2", temp_file.name], stdout=subprocess.PIPE, stderr = subprocess.PIPE)
+    output, error = python2_proc.communicate()
+
+    if "ImportError" in error.decode("utf-8"):
+        print("{0}\n{1}\n".format(tc.colored("To recover CFG you must have Angr module for Python 2", "white"),
+                                tc.colored("Install with: pip install angr", "magenta")))
+
+        return
+
+    funcs = json.loads(output.decode("utf-8"))
+    for fname in binary.imported_functions:
+        if fname in funcs:
+            del funcs[fname]
+
+    for fname, faddr in funcs.items():
+        print("{0} @ {1}".format(tc.colored(fname, "cyan"), tc.colored(hex(faddr), "yellow")))
+        disas(binary, faddr, 0x7)
+
+    print()
+
+
+def check_dynamic_entries(binary):
+    print(tc.colored("Check dynamic entries injection", "green"))
+
+    # Normally NEEDED dynamic entries are consecutive, check for entries that aren't consecutive
+    last_needed_entry = None
+    for i, d in enumerate(binary.dynamic_entries, start=1):
+        if d.tag == lief.ELF.DYNAMIC_TAGS.NEEDED:
+            if last_needed_entry == None:
+                last_needed_entry = i
+            else:
+                if (i - last_needed_entry) > 1:
+                    print("{0} {1} {2}".format(tc.colored("Suspicious NEEDED entry, index", "green"),
+                                               tc.colored(str(i), "red"),
+                                               tc.colored(d.name, "red")))
+                else:
+                    last_needed_entry = i
 
     print()
 
@@ -199,7 +271,8 @@ def analyse():
     check_rwx_sections(binary)
     check_ctors_array(binary)
     check_got_and_plt(binary)
-
+    check_funcs_trampoline(binary, sys.argv[1])
+    check_dynamic_entries(binary)
 
 if __name__ == "__main__":
     analyse()
