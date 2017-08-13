@@ -9,6 +9,10 @@ import json
 from capstone import *
 
 
+is_lesser  = lambda addr, sect: addr < sect.virtual_address
+is_greater = lambda addr, sect: addr > sect.virtual_address + sect.size
+
+
 def get_elf_class_str(identity_class):
     if   identity_class == lief.ELF.ELF_CLASS.CLASS32:
         return "32"
@@ -90,9 +94,14 @@ def check_entrypoint(binary):
                                tc.colored(section.name, "red"),
                                tc.colored("contains the entrypoint", "green")))
 
+    if is_lesser(entrypoint, section) or is_greater(entrypoint, section):
+        print(tc.colored("Suspicious", "red"))
+    else:
+        print(tc.colored("OK", "cyan"))
+
     disas(binary, entrypoint, 0x30)
 
-    print()
+    print("Done\n")
 
 
 def check_rwx_sections(binary):
@@ -100,11 +109,11 @@ def check_rwx_sections(binary):
 
     # check segments that have PF_W + PF_X or PF_R + PF_W + PF_X
     for seg in binary.segments:
-        if (seg.flags == 0x3) or (seg.flags == 0x7):
+        if (seg.flag == 0x3) or (seg.flag == 0x7):
             print("{0} {1}".format(tc.colored("Segment:", "cyan"),
                                    tc.colored(str(seg.type).split('.')[1], "red")))
 
-    print()
+    print("Done\n")
 
 
 def get_register_size(binary):
@@ -138,14 +147,12 @@ def check_ctors_array(binary):
                                tc.colored(hex(addr), "yellow")), end=' ')
 
         text_sect = binary.get_section(".text")
-        is_lesser  = addr < text_sect.virtual_address
-        is_greater = addr > text_sect.virtual_address + text_sect.size
-        if is_lesser or is_greater:
+        if is_lesser(addr, text_sect) or is_greater(addr, text_sect):
             print("{0}".format(tc.colored("is outside of .text section", "red")))
         else:
             print("{0}".format(tc.colored("OK", "cyan")))
 
-    print()
+    print("Done\n")
 
 
 def check_got_and_plt(binary):
@@ -173,9 +180,7 @@ def check_got_and_plt(binary):
         print("{0} {1}".format(tc.colored("Checking address: ", "cyan"),
                                tc.colored(hex(addr), "yellow")), end=' ')
 
-        is_lesser  = addr < plt.virtual_address
-        is_greater = addr > plt.virtual_address + plt.size
-        if is_lesser or is_greater:
+        if is_lesser(addr, plt) or is_greater(addr, plt):
             print("{0}".format(tc.colored("is outside of .plt section", "red")))
             for r in binary.pltgot_relocations:
                 if (r.address == (got_plt.virtual_address + i)) and r.has_symbol:
@@ -188,7 +193,7 @@ def check_got_and_plt(binary):
         else:
             print("{0}".format(tc.colored("OK", "cyan")))
 
-    print()
+    print("Done\n")
 
 
 # TO DO: pattern match trampolines instead of outputing all prologues
@@ -220,7 +225,7 @@ print json.dumps(funcs)
 
     if "ImportError" in error.decode("utf-8"):
         print("{0}\n{1}\n".format(tc.colored("To recover CFG you must have Angr module for Python 2", "white"),
-                                tc.colored("Install with: pip install angr", "magenta")))
+                                  tc.colored("Install with: pip install angr", "magenta")))
 
         return
 
@@ -233,7 +238,7 @@ print json.dumps(funcs)
         print("{0} @ {1}".format(tc.colored(fname, "cyan"), tc.colored(hex(faddr), "yellow")))
         disas(binary, faddr, 0x7)
 
-    print()
+    print("Done\n")
 
 
 def check_dynamic_entries(binary):
@@ -253,7 +258,7 @@ def check_dynamic_entries(binary):
                 else:
                     last_needed_entry = i
 
-    print()
+    print("Done\n")
 
 
 def analyse():
