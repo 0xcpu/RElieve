@@ -81,9 +81,12 @@ def disas(binary, addr, length):
         print(err)
         return
 
+    asm_code = ""
     md = Cs(arch, dis_mode)
     for i in md.disasm(code, addr):
-        print("0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str))
+        asm_code += "0x{0}:\t{1}\t{2}\n".format(i.address, i.mnemonic, i.op_str)
+
+    return asm_code
 
 
 def check_entrypoint(binary):
@@ -99,7 +102,7 @@ def check_entrypoint(binary):
     else:
         print(tc.colored("OK", "cyan"))
 
-    disas(binary, entrypoint, 0x30)
+    print(disas(binary, entrypoint, 0x30))
 
     print("Done\n")
 
@@ -189,7 +192,7 @@ def check_got_and_plt(binary):
                                                tc.colored(r.symbol, "yellow")))
                     break
 
-            disas(binary, addr, 0x30)
+            print(disas(binary, addr, 0x30))
         else:
             print("{0}".format(tc.colored("OK", "cyan")))
 
@@ -236,7 +239,13 @@ print json.dumps(funcs)
 
     for fname, faddr in funcs.items():
         print("{0} @ {1}".format(tc.colored(fname, "cyan"), tc.colored(hex(faddr), "yellow")))
-        disas(binary, faddr, 0x7)
+
+        prologue  = disas(binary, faddr, 0xA)
+        mnemonics = ["jmp", "ret", "retf", "retn", "call", "fld", "fistp", "movd"]
+        if (prologue is not None) and any(mnemonic in prologue for mnemonic in mnemonics):
+            print(prologue)
+        else:
+            print("{0}".format(tc.colored("OK", "cyan")))
 
     print("Done\n")
 
