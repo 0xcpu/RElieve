@@ -6,6 +6,8 @@ import termcolor as tc
 import tempfile
 import subprocess
 import json
+import angr
+
 from capstone import *
 
 
@@ -79,6 +81,7 @@ def disas(binary, addr, length):
         code = bytes(binary.get_content_from_virtual_address(addr, length))
     except lief.not_found as err:
         print(err)
+
         return
 
     asm_code = ""
@@ -111,8 +114,10 @@ def check_rwx_sections(binary):
     print(tc.colored("Segments with PF_W + PF_X or PF_R + PF_W + PF_X flags", "green"))
 
     # check segments that have PF_W + PF_X or PF_R + PF_W + PF_X
+    wx_flags  = lief.ELF.SEGMENT_FLAGS.W | lief.ELF.SEGMENT_FLAGS.X
+    rwx_flags = lief.ELF.SEGMENT_FLAGS.R | wx_flags
     for seg in binary.segments:
-        if (seg.flag == 0x3) or (seg.flag == 0x7):
+        if seg.flags == wx_flags or seg.flags == rwx_flags:
             print("{0} {1}".format(tc.colored("Segment:", "cyan"),
                                    tc.colored(str(seg.type).split('.')[1], "red")))
 
@@ -138,7 +143,9 @@ def check_ctors_array(binary):
     elif binary.has_section(".init_array"):
         sect = binary.get_section(".init_array")
     else:
-        raise lief.not_found
+        print(tc.colored(".init_array not found", "white"))
+
+        return
 
     content = sect.content
 
@@ -173,7 +180,9 @@ def check_got_and_plt(binary):
     if binary.has_section(".got.plt"):
         got_plt = binary.get_section(".got.plt")
     else:
-        raise lief.not_found
+        print(tc.colored(".got.plt not found", "white"))
+
+        return
 
     content = got_plt.content
 
@@ -202,37 +211,17 @@ def check_got_and_plt(binary):
 # TO DO: pattern match trampolines instead of outputing all prologues
 def check_funcs_trampoline(binary, path):
     print(tc.colored("Check if function(s) prologue contain a trampoline", "green"))
+    # if binary has PIE, angr loads by default at 0x400000, so when disassembling we need
+    # to subtract that base address, otherwise RVA used in capstone will be incorrect.
+    base_address_delta = 0x400000 if binary.is_pie else 0
 
-    python2_code = \
-                   """
-import angr
-import json
+    proj = angr.Project(path, auto_load_libs=False)
+    cfg  = proj.analyses.CFG()
+    funcs = {}
 
-proj  = angr.Project("{0}", auto_load_libs=False)
-cfg   = proj.analyses.CFG()
-funcs = dict()
+    for k, v in dict(proj.kb.functions).items():
+        funcs[v.name] = v.addr - base_address_delta
 
-for k, v in dict(proj.kb.functions).iteritems():
-    funcs[v.name] = v.addr
-
-print json.dumps(funcs)
-                   """.format(path)
-
-    temp_file = tempfile.NamedTemporaryFile(mode='w+', suffix=".py")
-    with open(temp_file.name, "w+") as f:
-        f.write(python2_code)
-    temp_file.file.close()
-
-    python2_proc  = subprocess.Popen(["python2", temp_file.name], stdout=subprocess.PIPE, stderr = subprocess.PIPE)
-    output, error = python2_proc.communicate()
-
-    if "ImportError" in error.decode("utf-8"):
-        print("{0}\n{1}\n".format(tc.colored("To recover CFG you must have Angr module for Python 2", "white"),
-                                  tc.colored("Install with: pip install angr", "magenta")))
-
-        return
-
-    funcs = json.loads(output.decode("utf-8"))
     for fname in binary.imported_functions:
         if fname in funcs:
             del funcs[fname]
