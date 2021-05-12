@@ -2,6 +2,7 @@ package gutils
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -178,10 +179,18 @@ func GetHammingDistance(str1, str2 []byte) uint64 {
 	return hammingDistance
 }
 
+func Memset(buff []byte, v byte) {
+	for i := 0; i < len(buff); i++ {
+		buff[i] = v
+	}
+}
+
 func GetPkcs7Padded(input []byte, blockLength int) []byte {
 	padLength := len(input) % blockLength
 	if padLength == 0 {
-		return append(input, make([]byte, blockLength)...)
+		paddedBlock := make([]byte, blockLength)
+		Memset(paddedBlock, 0x10)
+		return append(input, paddedBlock...)
 	} else {
 		padLength = blockLength - padLength
 		var i int
@@ -201,10 +210,22 @@ func GetPkcs7Unpadded(input []byte, blockLength int) []byte {
 		return input
 	}
 
-	if bytes.Equal(input[len(input)-blockLength:], make([]byte, blockLength)) {
+	paddedBlock := make([]byte, blockLength)
+	Memset(paddedBlock, 0x10)
+	if bytes.Equal(input[len(input)-blockLength:], paddedBlock) {
 		return input[:len(input)-blockLength]
 	} else {
 		count := input[len(input)-1]
 		return input[:len(input)-int(count)]
 	}
+}
+
+func GetNrandBytes(n uint) ([]byte, error) {
+	buff := make([]byte, n)
+	_, err := rand.Read(buff)
+	if err != nil {
+		return nil, err
+	}
+
+	return buff, nil
 }

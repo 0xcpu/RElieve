@@ -136,7 +136,9 @@ func TestGetPkcs7Padded(t *testing.T) {
 		t.Fatalf(FatalfErrFmt, "", res)
 	}
 	res = GetPkcs7Padded([]byte("Hello, World!!!!"), blockLength)
-	if !bytes.Equal(res, bytes.Join([][]byte{[]byte("Hello, World!!!!"), make([]byte, 16)}, []byte{})) {
+	paddedBlock := make([]byte, blockLength)
+	Memset(paddedBlock, 0x10)
+	if !bytes.Equal(res, bytes.Join([][]byte{[]byte("Hello, World!!!!"), paddedBlock}, []byte{})) {
 		t.Fatalf(FatalfErrFmt, "", res)
 	}
 	blockLength = 10
@@ -161,5 +163,25 @@ func TestGetPkcs7Unpadded(t *testing.T) {
 	}
 	if !bytes.Equal(res3, []byte("Hello, World")) {
 		t.Fatalf(FatalfErrFmt, "", res3)
+	}
+}
+
+func TestGetNrandBytes(t *testing.T) {
+	lenBuff := 1
+	buff, err := GetNrandBytes(uint(lenBuff))
+	if err != nil {
+		t.Fatalf(FatalfErrFmt, err, "")
+	}
+	if len(buff) != lenBuff {
+		t.Fatal("Length mismatch")
+	}
+
+	lenBuff = 16
+	buff, err = GetNrandBytes(uint(lenBuff))
+	if err != nil {
+		t.Fatalf(FatalfErrFmt, err, "")
+	}
+	if len(buff) != lenBuff {
+		t.Fatal("Length mismatch")
 	}
 }
